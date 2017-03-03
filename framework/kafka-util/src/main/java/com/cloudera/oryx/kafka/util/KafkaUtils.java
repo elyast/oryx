@@ -15,14 +15,7 @@
 
 package com.cloudera.oryx.kafka.util;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Properties;
-import java.util.concurrent.TimeUnit;
-
+import com.cloudera.oryx.common.collection.Pair;
 import kafka.admin.AdminUtils;
 import kafka.api.OffsetRequest$;
 import kafka.api.PartitionOffsetRequestInfo;
@@ -34,14 +27,22 @@ import kafka.javaapi.OffsetRequest;
 import kafka.javaapi.OffsetResponse;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.utils.ZKGroupTopicDirs;
+import kafka.utils.ZKStringSerializer$;
 import kafka.utils.ZkUtils;
-import kafka.utils.ZkUtils$;
+import org.I0Itec.zkclient.ZkClient;
+import org.I0Itec.zkclient.ZkConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Option;
 import scala.collection.JavaConversions;
 
-import com.cloudera.oryx.common.collection.Pair;
+import java.util.Properties;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Kafka-related utility methods.
@@ -74,7 +75,8 @@ public final class KafkaUtils {
                                       String topic,
                                       int partitions,
                                       Properties topicProperties) {
-    ZkUtils zkUtils = ZkUtils.apply(zkServers, ZK_TIMEOUT_MSEC, ZK_TIMEOUT_MSEC, false);
+    ZkConnection zkConnection = new ZkConnection(zkServers, ZK_TIMEOUT_MSEC);
+    ZkClient zkUtils = new ZkClient(zkConnection, ZK_TIMEOUT_MSEC, ZKStringSerializer$.MODULE$);
     try {
       if (AdminUtils.topicExists(zkUtils, topic)) {
         log.info("No need to create topic {} as it already exists", topic);
@@ -98,7 +100,8 @@ public final class KafkaUtils {
    * @return {@code true} if and only if the given topic exists
    */
   public static boolean topicExists(String zkServers, String topic) {
-    ZkUtils zkUtils = ZkUtils.apply(zkServers, ZK_TIMEOUT_MSEC, ZK_TIMEOUT_MSEC, false);
+    ZkConnection zkConnection = new ZkConnection(zkServers, ZK_TIMEOUT_MSEC);
+    ZkClient zkUtils = new ZkClient(zkConnection, ZK_TIMEOUT_MSEC, ZKStringSerializer$.MODULE$);
     try {
       return AdminUtils.topicExists(zkUtils, topic);
     } finally {
@@ -111,7 +114,8 @@ public final class KafkaUtils {
    * @param topic topic to delete, if it exists
    */
   public static void deleteTopic(String zkServers, String topic) {
-    ZkUtils zkUtils = ZkUtils.apply(zkServers, ZK_TIMEOUT_MSEC, ZK_TIMEOUT_MSEC, false);
+    ZkConnection zkConnection = new ZkConnection(zkServers, ZK_TIMEOUT_MSEC);
+    ZkClient zkUtils = new ZkClient(zkConnection, ZK_TIMEOUT_MSEC, ZKStringSerializer$.MODULE$);
     try {
       if (AdminUtils.topicExists(zkUtils, topic)) {
         log.info("Deleting topic {}", topic);
@@ -136,14 +140,15 @@ public final class KafkaUtils {
                                                           String topic) {
     ZKGroupTopicDirs topicDirs = new ZKGroupTopicDirs(groupID, topic);
     Map<Pair<String,Integer>,Long> offsets = new HashMap<>();
-    ZkUtils zkUtils = ZkUtils.apply(zkServers, ZK_TIMEOUT_MSEC, ZK_TIMEOUT_MSEC, false);
+    ZkConnection zkConnection = new ZkConnection(zkServers, ZK_TIMEOUT_MSEC);
+    ZkClient zkUtils = new ZkClient(zkConnection, ZK_TIMEOUT_MSEC, ZKStringSerializer$.MODULE$);
     try {
       List<?> partitions = JavaConversions.seqAsJavaList(
-          zkUtils.getPartitionsForTopics(
+          ZkUtils.getPartitionsForTopics(zkUtils,
             JavaConversions.asScalaBuffer(Collections.singletonList(topic))).head()._2());
       partitions.forEach(partition -> {
         String partitionOffsetPath = topicDirs.consumerOffsetDir() + "/" + partition;
-        Option<String> maybeOffset = zkUtils.readDataMaybeNull(partitionOffsetPath)._1();
+        Option<String> maybeOffset = ZkUtils.readDataMaybeNull(zkUtils, partitionOffsetPath)._1();
         Long offset = maybeOffset.isDefined() ? Long.parseLong(maybeOffset.get()) : null;
         offsets.put(new Pair<>(topic, Integer.parseInt(partition.toString())), offset);
       });
@@ -161,15 +166,15 @@ public final class KafkaUtils {
   public static void setOffsets(String zkServers,
                                 String groupID,
                                 Map<Pair<String,Integer>,Long> offsets) {
-    ZkUtils zkUtils = ZkUtils.apply(zkServers, ZK_TIMEOUT_MSEC, ZK_TIMEOUT_MSEC, false);
+    ZkConnection zkConnection = new ZkConnection(zkServers, ZK_TIMEOUT_MSEC);
+    ZkClient zkUtils = new ZkClient(zkConnection, ZK_TIMEOUT_MSEC, ZKStringSerializer$.MODULE$);
     try {
       offsets.forEach((topicAndPartition, offset) -> {
         ZKGroupTopicDirs topicDirs = new ZKGroupTopicDirs(groupID, topicAndPartition.getFirst());
         int partition = topicAndPartition.getSecond();
         String partitionOffsetPath = topicDirs.consumerOffsetDir() + "/" + partition;
-        zkUtils.updatePersistentPath(partitionOffsetPath,
-                                     Long.toString(offset),
-                                     ZkUtils$.MODULE$.DefaultAcls(false));
+        ZkUtils.updatePersistentPath(zkUtils, partitionOffsetPath,
+                                     Long.toString(offset));
       });
     } finally {
       zkUtils.close();
@@ -259,7 +264,7 @@ public final class KafkaUtils {
     }
     throw new IllegalStateException(
         "Error reading offset for " + topic + " / " + partition + ": " +
-        ErrorMapping.exceptionNameFor(errorCode));
+        ErrorMapping.exceptionFor(errorCode));
   }
 
   private static OffsetResponse requestOffsets(SimpleConsumer consumer, OffsetRequest request) {

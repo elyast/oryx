@@ -16,6 +16,8 @@
 package com.cloudera.oryx.lambda.batch;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -66,11 +68,16 @@ final class SaveToHDFSFunction<K,M> implements VoidFunction2<JavaPairRDD<K,M>,Ti
       log.info("RDD was empty, not saving to HDFS");
     } else {
       String file = prefix + "-" + time.milliseconds() + "." + suffix;
+
+      log.info("File to store: " + file);
       Path path = new Path(file);
-      FileSystem fs = FileSystem.get(hadoopConf);
-      if (fs.exists(path)) {
-        log.warn("Saved data already existed, possibly from a failed job. Deleting {}", path);
-        fs.delete(path, true);
+      try (FileSystem fs = FileSystem.get(new URI(file), hadoopConf)) {
+        if (fs.exists(path)) {
+          log.warn("Saved data already existed, possibly from a failed job. Deleting {}", path);
+          fs.delete(path, true);
+        }
+      } catch (URISyntaxException e) {
+        e.printStackTrace();
       }
       log.info("Saving RDD to HDFS at {}", file);
       rdd.mapToPair(

@@ -19,6 +19,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Properties;
 
 import kafka.server.KafkaConfig;
 import kafka.server.KafkaServerStartable;
@@ -70,15 +71,17 @@ public final class LocalKafkaBroker implements Closeable {
     logsDir = Files.createTempDirectory(LocalKafkaBroker.class.getSimpleName());
     logsDir.toFile().deleteOnExit();
 
-    kafkaServer = new KafkaServerStartable(new KafkaConfig(ConfigUtils.keyValueToProperties(
-        "broker.id", TEST_BROKER_ID,
-        "log.dirs", logsDir.toAbsolutePath(),
-        "port", port,
-        "zookeeper.connect", "localhost:" + zkPort
-        // Above are for Kafka 0.8; following are for 0.9+
-        //"message.max.bytes", 1 << 26, // TODO
-        //"replica.fetch.max.bytes", 1 << 26 // TODO
-    ), false));
+    Properties prop = ConfigUtils.keyValueToProperties(
+            "broker.id", TEST_BROKER_ID,
+            "log.dirs", logsDir.toAbsolutePath(),
+            "port", this.port,
+            "zookeeper.connect", "localhost:" + zkPort
+            // Above are for Kafka 0.8; following are for 0.9+
+            //"message.max.bytes", 1 << 26, // TODO
+            //"replica.fetch.max.bytes", 1 << 26 // TODO
+    );
+
+    kafkaServer = new KafkaServerStartable(new KafkaConfig(prop));
     kafkaServer.startup();
   }
 
